@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>スマホ版 AIS トラッカー</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin:0; padding:0; display:flex; flex-direction:column; height:100vh; background:#0f172a; color:#fff; font-family:sans-serif; }
+        .status { padding:8px; font-size:12px; text-align:center; background:#1e293b; color:#38bdf8; }
+        #map { flex:1; width:100%; }
+    </style>
+</head>
+<body>
+<div class="status" id="status">サーバーに接続中...</div>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    const map = L.map('map').setView([34.350, 133.800], 9);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
+
+    // ⚠️ ステップ3でCodespacesからコピーしたWebSocket URL（wss://...）をここに貼り付けます
+    const WSS_URL = "YOUR_CODESPACES_WSS_URL_HERE";
+
+    const socket = new WebSocket(WSS_URL);
+    const statusEl = document.getElementById('status');
+    const vesselStore = {};
+    let count = 0;
+
+    socket.onopen = () => statusEl.textContent = "AISデータ受信中（瀬戸内海〜大阪湾）";
+    socket.onerror = () => statusEl.textContent = "接続エラー: Codespacesが起動しているか確認してください";
+
+    socket.onmessage = (event) => {
+        const aisData = JSON.parse(event.data);
+        if (aisData.MessageType === "PositionReport") {
+            const pos = aisData.Message.PositionReport;
+            const meta = aisData.MetaData || {};
+            const mmsi = pos.UserID || meta.MMSI;
+            const lat = pos.Latitude || meta.Latitude;
+            const lng = pos.Longitude || meta.Longitude;
+
+            if (!lat || !lng || lat < -90 || lat > 90) return;
+
+            if (!vesselStore[mmsi]) count++;
+            if (vesselStore[mmsi]?.marker) map.removeLayer(vesselStore[mmsi].marker);
+
+            const marker = L.circleMarker([lat, lng], {
+                radius: 5, fillColor: "#38bdf8", color: "#fff", weight: 1, fillOpacity: 0.9
+            }).addTo(map);
+
+            const name = meta.ShipName ? meta.ShipName.trim() : `MMSI: ${mmsi}`;
+            marker.bindPopup(`<b>${name}</b><br>MMSI: ${mmsi}`);
+
+            vesselStore[mmsi] = { marker };
+            statusEl.textContent = `受信中（描画数: ${count} 隻）`;
+        }
+    };
+</script>
+</body>
+</html>
